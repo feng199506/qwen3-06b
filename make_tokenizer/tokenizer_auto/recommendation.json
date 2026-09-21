@@ -1,0 +1,165 @@
+{
+  "min_frequency": 2,
+  "evaluation_chars": 111436,
+  "results": [
+    {
+      "target_vocab": 1024,
+      "actual_vocab": 1024,
+      "train_time": 0.6249997615814209,
+      "chars": 111436,
+      "tokens": 87875,
+      "chars_per_token": 1.2681194879089617,
+      "tokens_per_char": 0.7885692235902222,
+      "gain": null,
+      "gain_per_1000_vocab": null
+    },
+    {
+      "target_vocab": 2048,
+      "actual_vocab": 2048,
+      "train_time": 0.7187490463256836,
+      "chars": 111436,
+      "tokens": 64465,
+      "chars_per_token": 1.7286279376405802,
+      "tokens_per_char": 0.5784934850497147,
+      "gain": 0.46050844973161853,
+      "gain_per_1000_vocab": 0.44971528294103374
+    },
+    {
+      "target_vocab": 4096,
+      "actual_vocab": 4096,
+      "train_time": 1.0781238079071045,
+      "chars": 111436,
+      "tokens": 48784,
+      "chars_per_token": 2.284273532305674,
+      "tokens_per_char": 0.43777594314225204,
+      "gain": 0.5556455946650938,
+      "gain_per_1000_vocab": 0.2713113255200653
+    },
+    {
+      "target_vocab": 6144,
+      "actual_vocab": 6144,
+      "train_time": 1.1093204021453857,
+      "chars": 111436,
+      "tokens": 40604,
+      "chars_per_token": 2.7444586740222636,
+      "tokens_per_char": 0.3643705804228436,
+      "gain": 0.46018514171658964,
+      "gain_per_1000_vocab": 0.22469977622880355
+    },
+    {
+      "target_vocab": 8192,
+      "actual_vocab": 8192,
+      "train_time": 1.2811920642852783,
+      "chars": 111436,
+      "tokens": 35190,
+      "chars_per_token": 3.166695083830634,
+      "tokens_per_char": 0.31578663986503464,
+      "gain": 0.4222364098083702,
+      "gain_per_1000_vocab": 0.20617012197674325
+    },
+    {
+      "target_vocab": 12288,
+      "actual_vocab": 9395,
+      "train_time": 1.3905692100524902,
+      "chars": 111436,
+      "tokens": 32788,
+      "chars_per_token": 3.398682444796877,
+      "tokens_per_char": 0.2942316666068416,
+      "gain": 0.23198736096624328,
+      "gain_per_1000_vocab": 0.19284069905755882
+    },
+    {
+      "target_vocab": 16384,
+      "actual_vocab": 9395,
+      "train_time": 1.4218711853027344,
+      "chars": 111436,
+      "tokens": 32788,
+      "chars_per_token": 3.398682444796877,
+      "tokens_per_char": 0.2942316666068416
+    },
+    {
+      "target_vocab": 32768,
+      "actual_vocab": 9395,
+      "train_time": 1.4218194484710693,
+      "chars": 111436,
+      "tokens": 32788,
+      "chars_per_token": 3.398682444796877,
+      "tokens_per_char": 0.2942316666068416
+    }
+  ],
+  "unique_results": [
+    {
+      "target_vocab": 1024,
+      "actual_vocab": 1024,
+      "train_time": 0.6249997615814209,
+      "chars": 111436,
+      "tokens": 87875,
+      "chars_per_token": 1.2681194879089617,
+      "tokens_per_char": 0.7885692235902222,
+      "gain": null,
+      "gain_per_1000_vocab": null
+    },
+    {
+      "target_vocab": 2048,
+      "actual_vocab": 2048,
+      "train_time": 0.7187490463256836,
+      "chars": 111436,
+      "tokens": 64465,
+      "chars_per_token": 1.7286279376405802,
+      "tokens_per_char": 0.5784934850497147,
+      "gain": 0.46050844973161853,
+      "gain_per_1000_vocab": 0.44971528294103374
+    },
+    {
+      "target_vocab": 4096,
+      "actual_vocab": 4096,
+      "train_time": 1.0781238079071045,
+      "chars": 111436,
+      "tokens": 48784,
+      "chars_per_token": 2.284273532305674,
+      "tokens_per_char": 0.43777594314225204,
+      "gain": 0.5556455946650938,
+      "gain_per_1000_vocab": 0.2713113255200653
+    },
+    {
+      "target_vocab": 6144,
+      "actual_vocab": 6144,
+      "train_time": 1.1093204021453857,
+      "chars": 111436,
+      "tokens": 40604,
+      "chars_per_token": 2.7444586740222636,
+      "tokens_per_char": 0.3643705804228436,
+      "gain": 0.46018514171658964,
+      "gain_per_1000_vocab": 0.22469977622880355
+    },
+    {
+      "target_vocab": 8192,
+      "actual_vocab": 8192,
+      "train_time": 1.2811920642852783,
+      "chars": 111436,
+      "tokens": 35190,
+      "chars_per_token": 3.166695083830634,
+      "tokens_per_char": 0.31578663986503464,
+      "gain": 0.4222364098083702,
+      "gain_per_1000_vocab": 0.20617012197674325
+    },
+    {
+      "target_vocab": 12288,
+      "actual_vocab": 9395,
+      "train_time": 1.3905692100524902,
+      "chars": 111436,
+      "tokens": 32788,
+      "chars_per_token": 3.398682444796877,
+      "tokens_per_char": 0.2942316666068416,
+      "gain": 0.23198736096624328,
+      "gain_per_1000_vocab": 0.19284069905755882
+    }
+  ],
+  "recommendation": {
+    "base_vocab_size": 9395,
+    "special_tokens": 3,
+    "final_vocab_size": 9398,
+    "chars_per_token": 3.398682444796877,
+    "tokens_per_char": 0.2942316666068416
+  }
+}
