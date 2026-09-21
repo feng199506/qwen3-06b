@@ -6,7 +6,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 # ============================================================
 
 # MODEL_DIR = Path("../configs").resolve()
-MODEL_DIR = r"..\qa_output"
+MODEL_DIR = r"..\dpo_output"
 
 # ============================================================
 # 2. 加载本地 tokenizer

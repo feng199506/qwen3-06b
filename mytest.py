@@ -1,14 +1,15 @@
 from transformers import pipeline
 
-pipe = pipeline("text-generation", model="Qwen/Qwen3-0.6B")
+pipe = pipeline("text-generation", model="Qwen/Qwen3-0.6B-Base")
 messages = [
     {"role": "user", "content": "Who are you?"},
 ]
-pipe(messages)   # Load model directly
+pipe(messages)
+
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B")
-model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-0.6B", device_map="auto")
+tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B-Base")
+model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-0.6B-Base", device_map="auto")
 messages = [
     {"role": "user", "content": "Who are you?"},
 ]

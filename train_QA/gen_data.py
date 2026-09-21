@@ -305,18 +305,18 @@ samples = samples[:1000]
 
 out_dir = Path("./data")
 jsonl_path = out_dir / "qwen_qa_1000.jsonl"
-json_path = out_dir / "qwen_qa_1000.json"
+# json_path = out_dir / "qwen_qa_1000.json"
 
 with jsonl_path.open("w", encoding="utf-8") as f:
     for item in samples:
         f.write(json.dumps(item, ensure_ascii=False) + "\n")
 
-with json_path.open("w", encoding="utf-8") as f:
-    json.dump(samples, f, ensure_ascii=False, indent=2)
+# with json_path.open("w", encoding="utf-8") as f:
+#     json.dump(samples, f, ensure_ascii=False, indent=2)
 
 print(f"已生成 {len(samples)} 条训练样本")
 print(f"JSONL: {jsonl_path}")
-print(f"JSON : {json_path}")
+# print(f"JSON : {json_path}")
 print("前3条：")
 for x in samples[:3]:
     print(json.dumps(x, ensure_ascii=False))
