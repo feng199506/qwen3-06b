@@ -4,3 +4,6 @@ Qwen3-0.6: https://huggingface.co/Qwen/Qwen3-0.6B/tree/main
 SmolLM2-135M-multilingual-base: https://huggingface.co/agentlans/SmolLM2-135M-multilingual-base/tree/main
 SmolLM2-135M-multilingual-instuct: https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/tree/main
 SmolLM2-135M-multilingual-base: https://huggingface.co/agentlans/SmolLM2-135M-multilingual-base/tree/main
+paraphrase-multilingual-MiniLM-L12-v2: https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2/tree/main
+
+
