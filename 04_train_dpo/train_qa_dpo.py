@@ -155,7 +155,7 @@ if tokenizer.chat_template is None:
 training_args = DPOConfig(
     output_dir=str(OUTPUT_PATH),
 
-    num_train_epochs=3,
+    num_train_epochs=5,
 
     per_device_train_batch_size=1,
 

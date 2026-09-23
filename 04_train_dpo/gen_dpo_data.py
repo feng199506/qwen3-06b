@@ -5,8 +5,12 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 from pathlib import Path
 import json
 import re
+import time
+
 import torch
+
 from datasets import load_dataset
+
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
@@ -19,39 +23,59 @@ from transformers import (
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# SFT 后的模型
 MODEL_PATH = BASE_DIR / "sft_output"
 
-# 原来的 SFT 数据
 DATA_PATH = BASE_DIR / "03_train_sft" / "data"
 
-# DPO 数据输出目录
 OUTPUT_DIR = BASE_DIR / "04_train_dpo" / "data"
 
-# DPO 数据文件
 OUTPUT_PATH = OUTPUT_DIR / "dpo_train.jsonl"
 
 
 # ============================================================
-# 2. 生成参数
+# 2. 参数
 # ============================================================
 
 MAX_NEW_TOKENS = 256
 
-TEMPERATURE = 0.5
-
-TOP_P = 0.9
-REPETITION_PENALTY = 1.05
-# None = 全部数据
-# 例如设置 10 可以先测试
 MAX_SAMPLES = None
+# MAX_SAMPLES = 5
 
-# 每多少条打印一次
-PRINT_EVERY = 10
+PRINT_EVERY = 1
+
+# rejected 用采样生成
+REJECTED_DO_SAMPLE = True
+REJECTED_TEMPERATURE = 1.1
+REJECTED_TOP_P = 0.95
+REJECTED_REPETITION_PENALTY = 1.15
+
+MIN_REJECTED_CHARS = 20
+MAX_REJECTED_ATTEMPTS = 3
 
 
 # ============================================================
-# 3. 加载 tokenizer
+# 3. 时间
+# ============================================================
+
+def format_seconds(seconds):
+
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+
+    minutes = int(seconds // 60)
+    seconds = int(seconds % 60)
+
+    if minutes < 60:
+        return f"{minutes}m {seconds}s"
+
+    hours = minutes // 60
+    minutes = minutes % 60
+
+    return f"{hours}h {minutes}s"
+
+
+# ============================================================
+# 4. tokenizer
 # ============================================================
 
 print("=" * 80)
@@ -63,19 +87,131 @@ tokenizer = AutoTokenizer.from_pretrained(
     trust_remote_code=True,
 )
 
-print("Tokenizer vocab_size:", tokenizer.vocab_size)
-print("Tokenizer length:", len(tokenizer))
-print("Chat template:", tokenizer.chat_template is not None)
+
+print(
+    "Tokenizer vocab_size:",
+    tokenizer.vocab_size,
+)
+
+print(
+    "Tokenizer length:",
+    len(tokenizer),
+)
+
+print(
+    "Chat template:",
+    tokenizer.chat_template is not None,
+)
 
 
 if tokenizer.chat_template is None:
+
     raise ValueError(
-        "Tokenizer does not have a chat_template."
+        "SFT tokenizer has no chat_template."
     )
 
 
 # ============================================================
-# 4. 加载 SFT 模型
+# 5. Special tokens
+# ============================================================
+
+print()
+print("=" * 80)
+print("SPECIAL TOKENS")
+print("=" * 80)
+
+
+IM_START_ID = tokenizer.convert_tokens_to_ids(
+    "<|im_start|>"
+)
+
+IM_END_ID = tokenizer.convert_tokens_to_ids(
+    "<|im_end|>"
+)
+
+
+if IM_START_ID is None or IM_START_ID < 0:
+
+    raise ValueError(
+        "<|im_start|> does not exist in tokenizer."
+    )
+
+
+if IM_END_ID is None or IM_END_ID < 0:
+
+    raise ValueError(
+        "<|im_end|> does not exist in tokenizer."
+    )
+
+
+print(
+    "Current tokenizer EOS:",
+    tokenizer.eos_token,
+)
+
+print(
+    "Current tokenizer EOS ID:",
+    tokenizer.eos_token_id,
+)
+
+print(
+    "Current tokenizer PAD:",
+    tokenizer.pad_token,
+)
+
+print(
+    "Current tokenizer PAD ID:",
+    tokenizer.pad_token_id,
+)
+
+print(
+    "<|im_start|> ID:",
+    IM_START_ID,
+)
+
+print(
+    "<|im_end|> ID:",
+    IM_END_ID,
+)
+
+
+# ============================================================
+# 重要：
+# 对 Chat QA 模型，明确使用 <|im_end|> 作为停止 token
+# ============================================================
+
+EOS_ID = IM_END_ID
+PAD_ID = IM_END_ID
+
+
+print()
+print("=" * 80)
+print("DPO GENERATION EOS CONFIG")
+print("=" * 80)
+
+print(
+    "Generation EOS token:",
+    "<|im_end|>",
+)
+
+print(
+    "Generation EOS ID:",
+    EOS_ID,
+)
+
+print(
+    "Generation PAD token:",
+    "<|im_end|>",
+)
+
+print(
+    "Generation PAD ID:",
+    PAD_ID,
+)
+
+
+# ============================================================
+# 6. model
 # ============================================================
 
 print()
@@ -86,23 +222,93 @@ print("=" * 80)
 model = AutoModelForCausalLM.from_pretrained(
     str(MODEL_PATH),
     trust_remote_code=True,
-    dtype="auto",
+    dtype=torch.bfloat16,
 )
+
+
+if not torch.cuda.is_available():
+
+    raise RuntimeError(
+        "CUDA is not available."
+    )
+
+
+model = model.to("cuda")
 
 model.eval()
 
-print("Model vocab_size:", model.config.vocab_size)
 
-assert len(tokenizer) == model.config.vocab_size, (
-    f"Tokenizer/model vocab mismatch: "
-    f"{len(tokenizer)} != {model.config.vocab_size}"
+print(
+    "Model device:",
+    model.device,
 )
 
-print("Vocab check: OK")
+print(
+    "Model dtype:",
+    next(model.parameters()).dtype,
+)
+
+print(
+    "CUDA device:",
+    torch.cuda.get_device_name(0),
+)
+
+print(
+    "CUDA memory:",
+    f"{torch.cuda.memory_allocated() / 1024**3:.2f} GB",
+)
+
+print(
+    "Model vocab_size:",
+    model.config.vocab_size,
+)
+
+
+assert len(tokenizer) == model.config.vocab_size
 
 
 # ============================================================
-# 5. 加载原始 SFT 数据
+# 7. generation config
+# ============================================================
+
+# 不使用 tokenizer 当前可能错误的 eos_token_id。
+# 明确指定 <|im_end|>。
+
+model.config.eos_token_id = EOS_ID
+model.config.pad_token_id = PAD_ID
+
+model.generation_config.eos_token_id = EOS_ID
+model.generation_config.pad_token_id = PAD_ID
+
+
+print()
+print("=" * 80)
+print("MODEL GENERATION CONFIG")
+print("=" * 80)
+
+print(
+    "model.config.eos_token_id:",
+    model.config.eos_token_id,
+)
+
+print(
+    "model.config.pad_token_id:",
+    model.config.pad_token_id,
+)
+
+print(
+    "generation_config.eos_token_id:",
+    model.generation_config.eos_token_id,
+)
+
+print(
+    "generation_config.pad_token_id:",
+    model.generation_config.pad_token_id,
+)
+
+
+# ============================================================
+# 8. dataset
 # ============================================================
 
 print()
@@ -110,79 +316,106 @@ print("=" * 80)
 print("Loading SFT dataset")
 print("=" * 80)
 
-data_dir = Path(DATA_PATH)
 
-json_files = list(data_dir.glob("*.json"))
-jsonl_files = list(data_dir.glob("*.jsonl"))
+data_files = (
+    list(Path(DATA_PATH).glob("*.json"))
+    + list(Path(DATA_PATH).glob("*.jsonl"))
+)
 
-data_files = json_files + jsonl_files
 
 if not data_files:
+
     raise FileNotFoundError(
-        f"No .json or .jsonl files found in: {DATA_PATH}"
+        f"No data files found in {DATA_PATH}"
     )
 
-print("Found data files:")
 
 for file in data_files:
+
     print("  ", file)
 
 
 dataset = load_dataset(
     "json",
-    data_files=[str(f) for f in data_files],
+    data_files=[
+        str(file)
+        for file in data_files
+    ],
     split="train",
 )
 
+
 print()
-print("Dataset size:", len(dataset))
-print("Dataset columns:", dataset.column_names)
+print(
+    "Dataset size:",
+    len(dataset),
+)
 
+print(
+    "Columns:",
+    dataset.column_names,
+)
 
-# ============================================================
-# 6. 检查 messages
-# ============================================================
 
 if "messages" not in dataset.column_names:
+
     raise ValueError(
-        "SFT dataset must contain a 'messages' column."
+        "Dataset must contain messages."
     )
 
 
 # ============================================================
-# 7. 获取 user 问题
+# 9. question
 # ============================================================
 
 def get_user_question(messages):
+
     for message in reversed(messages):
+
         if message["role"] == "user":
+
             return message["content"].strip()
 
     return ""
 
 
 # ============================================================
-# 8. 获取标准答案
+# 10. chosen
 # ============================================================
 
 def get_reference_answer(messages):
+
     for message in reversed(messages):
+
         if message["role"] == "assistant":
+
             return message["content"].strip()
 
     return ""
 
 
 # ============================================================
-# 9. 生成 rejected
+# 11. generate rejected
 # ============================================================
 
 @torch.inference_mode()
-def generate_rejected(question):
+def generate_rejected(
+    question,
+    index,
+    total,
+):
 
-    # --------------------------------------------------------
-    # 只保留 user 问题
-    # --------------------------------------------------------
+    start = time.time()
+
+
+    print()
+    print("-" * 80)
+
+    print(
+        f"[{index}/{total}] GENERATION START",
+        flush=True,
+    )
+
 
     messages = [
         {
@@ -191,9 +424,10 @@ def generate_rejected(question):
         }
     ]
 
-    # --------------------------------------------------------
-    # 使用 chat template
-    # --------------------------------------------------------
+
+    # ========================================================
+    # 使用训练时相同的 chat template
+    # ========================================================
 
     prompt_text = tokenizer.apply_chat_template(
         messages,
@@ -201,145 +435,434 @@ def generate_rejected(question):
         add_generation_prompt=True,
     )
 
+
+    print()
+    print(
+        f"[{index}/{total}] Prompt:"
+    )
+
+    print(
+        repr(prompt_text)
+    )
+
+
     inputs = tokenizer(
         prompt_text,
         return_tensors="pt",
         add_special_tokens=False,
     )
 
+
     inputs = {
         key: value.to(model.device)
         for key, value in inputs.items()
     }
 
-    outputs = model.generate(
-        **inputs,
 
-        max_new_tokens=MAX_NEW_TOKENS,
-
-        do_sample=True,
-
-        temperature=TEMPERATURE,
-        top_p=TOP_P,
-
-        repetition_penalty=REPETITION_PENALTY,
-
-        pad_token_id=tokenizer.pad_token_id,
-        eos_token_id=tokenizer.eos_token_id,
+    input_length = (
+        inputs["input_ids"].shape[1]
     )
 
-    # --------------------------------------------------------
-    # 只取新生成部分
-    # --------------------------------------------------------
+
+    print(
+        f"[{index}/{total}] "
+        f"Input tokens: {input_length}",
+        flush=True,
+    )
+
+
+    if torch.cuda.is_available():
+
+        torch.cuda.synchronize()
+
+
+    generation_start = time.time()
+
+
+    print(
+        f"[{index}/{total}] "
+        "Calling generate()...",
+        flush=True,
+    )
+
+
+    # ========================================================
+    # Generation
+    # ========================================================
+
+    outputs = model.generate(
+
+        **inputs,
+
+        # 最大生成长度保持 256
+        max_new_tokens=MAX_NEW_TOKENS,
+
+        # rejected 使用采样
+        do_sample=REJECTED_DO_SAMPLE,
+
+        temperature=REJECTED_TEMPERATURE,
+
+        top_p=REJECTED_TOP_P,
+
+        repetition_penalty=(
+            REJECTED_REPETITION_PENALTY
+        ),
+
+        num_beams=1,
+
+        use_cache=True,
+
+        # ====================================================
+        # 关键修改：
+        # 强制 <|im_end|> 为 EOS
+        # ====================================================
+
+        eos_token_id=EOS_ID,
+
+        pad_token_id=PAD_ID,
+    )
+
+
+    if torch.cuda.is_available():
+
+        torch.cuda.synchronize()
+
+
+    generation_time = (
+        time.time()
+        - generation_start
+    )
+
+
+    # ========================================================
+    # 只取新生成 token
+    # ========================================================
 
     generated_tokens = outputs[
         0,
-        inputs["input_ids"].shape[1]:
+        input_length:
     ]
+
+
+    output_length = (
+        generated_tokens.shape[0]
+    )
+
+
+    # ========================================================
+    # 检查是否真的生成了 EOS
+    # ========================================================
+
+    generated_token_ids = (
+        generated_tokens.tolist()
+    )
+
+
+    eos_positions = [
+        i
+        for i, token_id
+        in enumerate(generated_token_ids)
+        if token_id == EOS_ID
+    ]
+
+
+    reached_eos = (
+        len(eos_positions) > 0
+    )
+
+
+    # ========================================================
+    # decode
+    # ========================================================
 
     answer = tokenizer.decode(
         generated_tokens,
         skip_special_tokens=True,
     )
 
+
+    total_time = (
+        time.time()
+        - start
+    )
+
+
+    # ========================================================
+    # statistics
+    # ========================================================
+
+    print()
+    print(
+        f"[{index}/{total}] "
+        f"Output tokens: {output_length}",
+        flush=True,
+    )
+
+
+    print(
+        f"[{index}/{total}] "
+        f"EOS reached: {reached_eos}",
+        flush=True,
+    )
+
+
+    if reached_eos:
+
+        print(
+            f"[{index}/{total}] "
+            f"EOS position: {eos_positions}",
+            flush=True,
+        )
+
+    else:
+
+        print(
+            f"[{index}/{total}] "
+            "WARNING: EOS was NOT reached",
+            flush=True,
+        )
+
+
+    print(
+        f"[{index}/{total}] "
+        f"Generation time: "
+        f"{format_seconds(generation_time)}",
+        flush=True,
+    )
+
+
+    if output_length > 0:
+
+        print(
+            f"[{index}/{total}] "
+            f"Speed: "
+            f"{output_length / generation_time:.2f} tok/s",
+            flush=True,
+        )
+
+
+    print(
+        f"[{index}/{total}] "
+        f"Total time: "
+        f"{format_seconds(total_time)}",
+        flush=True,
+    )
+
+
     return answer.strip()
 
 
 # ============================================================
-# 10. 清理 rejected
+# 12. clean
 # ============================================================
 
 def clean_answer(answer):
 
     if not answer:
+
         return ""
+
 
     answer = answer.strip()
 
-    # --------------------------------------------------------
-    # assistant 前缀
-    # --------------------------------------------------------
 
     prefixes = [
+
         "assistant:",
+
         "Assistant:",
+
         "assistant：",
+
         "Assistant：",
+
     ]
+
 
     for prefix in prefixes:
 
         if answer.startswith(prefix):
-            answer = answer[len(prefix):].strip()
 
-    # --------------------------------------------------------
-    # 防止继续生成下一轮
-    # --------------------------------------------------------
+            answer = (
+                answer[
+                    len(prefix):
+                ]
+                .strip()
+            )
+
 
     stop_markers = [
+
         "\nuser",
+
         "\nUser",
+
         "\n用户",
+
         "\n### User",
+
         "\n<|im_start|>user",
+
         "<|im_start|>user",
+
     ]
+
 
     for marker in stop_markers:
 
         if marker in answer:
-            answer = answer.split(marker)[0].strip()
 
-    # --------------------------------------------------------
-    # 去除明显异常字符
-    # --------------------------------------------------------
+            answer = (
+                answer
+                .split(marker)[0]
+                .strip()
+            )
 
-    answer = answer.replace("\x00", "")
-    answer = answer.replace("\x01", "")
-    answer = answer.replace("\x02", "")
-    answer = answer.replace("\x03", "")
-    answer = answer.replace("\x04", "")
+
+    for code in range(1, 5):
+
+        answer = answer.replace(
+            chr(code),
+            "",
+        )
+
 
     return answer.strip()
+
+
+# ============================================================
+# 13. valid rejected
+# ============================================================
+
+def _cjk_or_alnum_count(text):
+
+    count = 0
+
+    for ch in text:
+
+        if ch.isalnum():
+
+            count += 1
+
+        elif "\u4e00" <= ch <= "\u9fff":
+
+            count += 1
+
+    return count
 
 
 def valid_rejected(answer):
 
     if not answer:
+
         return False
 
-    # 太短
-    if len(answer) < 5:
+
+    answer = answer.strip()
+
+
+    if len(answer) < MIN_REJECTED_CHARS:
+
         return False
+
+
+    # 至少要有一定数量的有效字符
+    if _cjk_or_alnum_count(answer) < 8:
+
+        return False
+
+
+    punct_only = re.sub(
+        r"[\s\W_]+",
+        "",
+        answer,
+        flags=re.UNICODE,
+    )
+
+
+    if len(punct_only) < 8:
+
+        return False
+
 
     # replacement character
-    replacement_count = answer.count("�")
+    if answer.count("�") >= 2:
 
-    if replacement_count >= 2:
         return False
+
 
     # 控制字符
     bad_control_count = 0
 
     for ch in answer:
+
         code = ord(ch)
 
-        if (
-                code < 32
-                and ch not in "\n\r\t"
-        ):
+        if code < 32 and ch not in "\n\r\t":
+
             bad_control_count += 1
 
+
     if bad_control_count >= 2:
+
         return False
 
-    # 连续重复字符，例如：
-    # 哈哈哈哈哈哈哈哈哈
-    if re.search(r"(.)\1{7,}", answer):
+
+    # 重复字符
+    if re.search(
+        r"(.)\1{5,}",
+        answer,
+    ):
+
         return False
+
+
+    # 重复短片段
+    if re.search(
+        r"(.{2,6})\1{3,}",
+        answer,
+    ):
+
+        return False
+
+
+    # 标点占比
+    non_space = [
+        ch
+        for ch in answer
+        if not ch.isspace()
+    ]
+
+
+    if non_space:
+
+        punct = sum(
+
+            1
+
+            for ch in non_space
+
+            if not (
+                ch.isalnum()
+                or "\u4e00" <= ch <= "\u9fff"
+            )
+
+        )
+
+
+        if (
+            punct / len(non_space)
+            > 0.5
+        ):
+
+            return False
+
+
     return True
+
+
 # ============================================================
-# 11. 输出目录
+# 14. output
 # ============================================================
 
 OUTPUT_DIR.mkdir(
@@ -349,7 +872,7 @@ OUTPUT_DIR.mkdir(
 
 
 # ============================================================
-# 12. 生成 DPO 数据
+# 15. generate DPO
 # ============================================================
 
 print()
@@ -357,18 +880,28 @@ print("=" * 80)
 print("GENERATING DPO DATA")
 print("=" * 80)
 
+
 total = len(dataset)
 
+
 if MAX_SAMPLES is not None:
+
     total = min(
         total,
         MAX_SAMPLES,
     )
 
-print("Total samples:", total)
+
+print(
+    "Total samples:",
+    total,
+)
+
 
 written = 0
 skipped = 0
+
+start_all = time.time()
 
 
 with open(
@@ -377,128 +910,312 @@ with open(
     encoding="utf-8",
 ) as f:
 
+
     for index in range(total):
+
+        item_start = time.time()
+
 
         messages = dataset[index]["messages"]
 
-        # ----------------------------------------------------
-        # 原问题
-        # ----------------------------------------------------
 
-        question = get_user_question(messages)
+        question = get_user_question(
+            messages
+        )
 
-        # ----------------------------------------------------
-        # 原 SFT 标准答案
-        #
-        # 直接作为 chosen
-        # ----------------------------------------------------
 
-        chosen = get_reference_answer(messages)
+        chosen = get_reference_answer(
+            messages
+        )
+
 
         chosen = chosen.strip()
 
-        # ----------------------------------------------------
-        # SFT 模型重新生成回答
-        #
-        # 作为 rejected
-        # ----------------------------------------------------
 
-        rejected = generate_rejected(question)
-        rejected = clean_answer(rejected)
+        print()
+        print("=" * 80)
 
-        if not valid_rejected(rejected):
-            skipped += 1
-            continue
+        print(
+            f"[{index + 1}/{total}] PROCESSING",
+            flush=True,
+        )
 
-        # ----------------------------------------------------
-        # 基础检查
-        # ----------------------------------------------------
+        print(
+            "Question:",
+            question[:300],
+            flush=True,
+        )
+
+
+        # ====================================================
+        # generate rejected
+        # ====================================================
+
+        rejected = ""
+
+
+        for attempt in range(
+            1,
+            MAX_REJECTED_ATTEMPTS + 1,
+        ):
+
+
+            rejected = generate_rejected(
+
+                question,
+
+                index + 1,
+
+                total,
+
+            )
+
+
+            print()
+            print(
+                f"RAW REJECTED "
+                f"(attempt {attempt}):"
+            )
+
+            print(
+                repr(rejected)
+            )
+
+
+            rejected = clean_answer(
+                rejected
+            )
+
+
+            print()
+            print(
+                "CLEANED REJECTED:"
+            )
+
+            print(
+                repr(rejected)
+            )
+
+
+            # =================================================
+            # validation
+            # =================================================
+
+            if (
+                valid_rejected(rejected)
+                and rejected != chosen
+            ):
+
+                break
+
+
+            print(
+                f"[{index + 1}/{total}] "
+                f"rejected attempt "
+                f"{attempt} invalid, retry..."
+            )
+
+
+            rejected = ""
+
+
+        # ====================================================
+        # validation
+        # ====================================================
 
         if not question:
+
+            print(
+                "SKIP: empty question"
+            )
+
             skipped += 1
+
             continue
+
 
         if not chosen:
+
+            print(
+                "SKIP: empty chosen"
+            )
+
             skipped += 1
+
             continue
 
-        if not rejected:
+
+        if not valid_rejected(
+            rejected
+        ):
+
+            print(
+                "SKIP: invalid rejected"
+            )
+
             skipped += 1
+
             continue
 
-        # ----------------------------------------------------
-        # 如果模型生成的答案和标准答案完全一样
-        #
-        # 没有 preference 信息，跳过
-        # ----------------------------------------------------
 
         if rejected == chosen:
+
+            print(
+                "SKIP: rejected == chosen"
+            )
+
             skipped += 1
+
             continue
 
-        # ----------------------------------------------------
-        # DPO 数据
-        # ----------------------------------------------------
+
+        # ====================================================
+        # DPO item
+        # ====================================================
 
         dpo_item = {
+
             "prompt": [
+
                 {
                     "role": "user",
                     "content": question,
                 }
+
             ],
+
             "chosen": [
+
                 {
                     "role": "assistant",
                     "content": chosen,
                 }
+
             ],
+
             "rejected": [
+
                 {
                     "role": "assistant",
                     "content": rejected,
                 }
+
             ],
+
         }
 
+
         f.write(
+
             json.dumps(
                 dpo_item,
                 ensure_ascii=False,
             )
+
             + "\n"
+
         )
+
+
+        f.flush()
+
 
         written += 1
 
-        # ----------------------------------------------------
-        # 打印
-        # ----------------------------------------------------
 
-        if index % PRINT_EVERY == 0:
+        # ====================================================
+        # statistics
+        # ====================================================
 
-            print()
-            print("-" * 80)
+        elapsed = (
+            time.time()
+            - start_all
+        )
 
-            print(
-                f"Progress: {index + 1}/{total}"
-            )
 
-            print()
-            print("PROMPT:")
-            print(question)
+        processed = index + 1
 
-            print()
-            print("CHOSEN:")
-            print(chosen)
 
-            print()
-            print("REJECTED:")
-            print(rejected)
+        avg_time = (
+            elapsed
+            / processed
+        )
+
+
+        remaining = (
+            total
+            - processed
+        )
+
+
+        eta = (
+            avg_time
+            * remaining
+        )
+
+
+        item_time = (
+            time.time()
+            - item_start
+        )
+
+
+        print()
+        print(
+            f"[{processed}/{total}] WRITTEN"
+        )
+
+
+        print(
+            f"Progress : "
+            f"{processed}/{total} "
+            f"({processed / total * 100:.2f}%)"
+        )
+
+
+        print(
+            f"Current  : "
+            f"{format_seconds(item_time)}"
+        )
+
+
+        print(
+            f"Average  : "
+            f"{format_seconds(avg_time)} "
+            f"/ sample"
+        )
+
+
+        print(
+            f"Elapsed  : "
+            f"{format_seconds(elapsed)}"
+        )
+
+
+        print(
+            f"ETA      : "
+            f"{format_seconds(eta)}"
+        )
+
+
+        print(
+            f"Written  : {written}"
+        )
+
+
+        print(
+            f"Skipped  : {skipped}"
+        )
+
+
+        print(
+            f"GPU      : "
+            f"{torch.cuda.memory_allocated() / 1024**3:.2f} GB"
+        )
 
 
 # ============================================================
-# 13. 完成
+# 16. DONE
 # ============================================================
 
 print()
@@ -506,9 +1223,20 @@ print("=" * 80)
 print("DONE")
 print("=" * 80)
 
-print("Input samples :", total)
-print("Written samples:", written)
-print("Skipped samples:", skipped)
+print(
+    "Input samples :",
+    total,
+)
+
+print(
+    "Written       :",
+    written,
+)
+
+print(
+    "Skipped       :",
+    skipped,
+)
 
 print()
 print("DPO dataset:")
