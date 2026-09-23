@@ -5,12 +5,14 @@ __pycache__/
 venv/
 .idea
 
-# Model outputs
-output/
-qa_output/
-checkpoint-*/
-*.safetensors
+# Model / tokenizer outputs
+*safetensors
 *.bin
 *.pt
 *.pth
-
+lm_output
+sft_output
+dpo_output
+grpo_output
+tokenizer
+checkpoint-*/
